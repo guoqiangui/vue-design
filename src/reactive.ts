@@ -534,16 +534,56 @@ function watch<T>(
   }
 }
 
-const p = reactive(
-  new Map([
-    ["key1", 1],
-    ["key2", 2],
-  ])
-);
-effect(() => {
-  for (const v of p.keys()) {
-    console.log(v);
-  }
-});
+function ref(value) {
+  const wrapper = { value };
+  Object.defineProperty(wrapper, "__v_isRef", { value: true });
+  return reactive(wrapper);
+}
 
-p.set("key2", 3);
+function toRef(obj: object, key: PropertyKey) {
+  const wrapper = {
+    get value() {
+      return obj[key];
+    },
+    set value(val) {
+      obj[key] = val;
+    },
+  };
+  Object.defineProperty(wrapper, "__v_isRef", { value: true });
+  return wrapper;
+}
+
+function toRefs(obj: object) {
+  const newObj = {};
+  Object.keys(obj).forEach((key) => {
+    newObj[key] = toRef(obj, key);
+  });
+  return newObj;
+}
+
+// 自动脱ref
+function proxyRefs(obj: object) {
+  return new Proxy(obj, {
+    get(target, p, receiver) {
+      const value = Reflect.get(target, p, receiver);
+
+      return value.__v_isRef ? value.value : value;
+    },
+    set(target, p, newValue, receiver) {
+      const value = target[p];
+      if (value.__v_isRef) {
+        value.value = newValue;
+        return true;
+      }
+      return Reflect.set(target, p, newValue, receiver);
+    },
+  });
+}
+
+const obj = reactive({ foo: 1, bar: 2 });
+
+const newObj = proxyRefs({ ...toRefs(obj) });
+
+console.log(newObj.foo);
+newObj.foo = 100;
+console.log(newObj);
