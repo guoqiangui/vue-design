@@ -400,7 +400,7 @@ type EffectOptions = {
 let activeEffect: EffectFunction | undefined;
 const effectStack: EffectFunction[] = [];
 // 注册副作用函数
-function effect(fn: Function, options: EffectOptions = {}) {
+export function effect(fn: Function, options: EffectOptions = {}) {
   const effectFn = () => {
     cleanup(effectFn);
     activeEffect = effectFn;
@@ -534,7 +534,7 @@ function watch<T>(
   }
 }
 
-function ref(value) {
+export function ref(value) {
   const wrapper = { value };
   Object.defineProperty(wrapper, "__v_isRef", { value: true });
   return reactive(wrapper);
@@ -579,11 +579,3 @@ function proxyRefs(obj: object) {
     },
   });
 }
-
-const obj = reactive({ foo: 1, bar: 2 });
-
-const newObj = proxyRefs({ ...toRefs(obj) });
-
-console.log(newObj.foo);
-newObj.foo = 100;
-console.log(newObj);

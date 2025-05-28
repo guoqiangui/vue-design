@@ -1,5 +1,3 @@
-// import { main } from "./renderer";
+import "./renderer";
 
-// main();
-
-import "./reactive";
+// import "./reactive";
