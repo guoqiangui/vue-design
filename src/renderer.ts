@@ -10,6 +10,7 @@ export type VNode = {
   props?: Record<string, any>;
   children?: string | VNode[];
   el?: HTMLElement | Text | Comment | null;
+  key?: any;
 };
 
 function mountComponent(vnode: VNode, container: HTMLElement) {
@@ -56,7 +57,12 @@ export function createRenderer(options: RendererOptions) {
     container._vnode = vnode;
   }
 
-  function patch(oldVnode: VNode | undefined, newVnode: VNode, container) {
+  function patch(
+    oldVnode: VNode | undefined,
+    newVnode: VNode,
+    container,
+    anchor?
+  ) {
     if (oldVnode && oldVnode.type !== newVnode.type) {
       unmount(oldVnode);
       oldVnode = undefined;
@@ -66,7 +72,7 @@ export function createRenderer(options: RendererOptions) {
 
     if (typeof type === "string") {
       if (!oldVnode) {
-        mountElement(newVnode, container);
+        mountElement(newVnode, container, anchor);
       } else {
         patchElement(oldVnode, newVnode);
       }
@@ -103,13 +109,13 @@ export function createRenderer(options: RendererOptions) {
     }
   }
 
-  function mountElement(vnode: VNode, container) {
+  function mountElement(vnode: VNode, container, anchor?) {
     if (typeof vnode.type === "string") {
       const el = (vnode.el = createElement(vnode.type));
 
       if (vnode.props) {
         Object.keys(vnode.props).forEach((key) => {
-          const value = vnode.props[key];
+          const value = vnode.props![key];
           patchProps(el, key, null, value);
         });
       }
@@ -121,7 +127,7 @@ export function createRenderer(options: RendererOptions) {
           patch(undefined, child, el);
         });
       }
-      insert(el, container);
+      insert(el, container, anchor);
     }
   }
 
@@ -159,28 +165,73 @@ export function createRenderer(options: RendererOptions) {
     patchChildren(oldVnode, newVnode, el);
   }
 
-  function patchChildren(oldVnode: VNode, newVnode: VNode, container) {
-    if (!newVnode.children) {
-      if (typeof oldVnode.children === "string") {
+  function patchChildren(n1: VNode, n2: VNode, container) {
+    if (!n2.children) {
+      if (typeof n1.children === "string") {
         setElementText(container, "");
-      } else if (Array.isArray(oldVnode.children)) {
-        oldVnode.children.forEach((child) => unmount(child));
+      } else if (Array.isArray(n1.children)) {
+        n1.children.forEach((child) => unmount(child));
       }
-    } else if (typeof newVnode.children === "string") {
-      if (Array.isArray(oldVnode.children)) {
-        oldVnode.children.forEach((child) => unmount(child));
+    } else if (typeof n2.children === "string") {
+      if (Array.isArray(n1.children)) {
+        n1.children.forEach((child) => unmount(child));
       }
-      setElementText(container, newVnode.children);
+      setElementText(container, n2.children);
     } else {
-      if (Array.isArray(oldVnode.children)) {
-        // 应该是DIFF算法，这里简单处理
-        oldVnode.children.forEach((child) => unmount(child));
-        newVnode.children.forEach((child) => {
-          patch(undefined, child, container);
+      if (Array.isArray(n1.children)) {
+        // 简单DIFF
+
+        const oldChildren = n1.children;
+        const newChildren = n2.children;
+
+        // 在旧 children 中寻找具有相同 key 值节点的过程中，遇到的最大索引值
+        let lastIndex = 0;
+        for (let i = 0; i < newChildren.length; i++) {
+          const newVnode = newChildren[i];
+
+          let find = false;
+          for (let j = 0; j < oldChildren.length; j++) {
+            const oldVnode = oldChildren[j];
+            if (newVnode.key === oldVnode.key) {
+              find = true;
+
+              patch(oldVnode, newVnode, container);
+              if (j < lastIndex) {
+                // 需要移动
+                const prevNode = newChildren[i - 1];
+                if (prevNode) {
+                  const anchor = prevNode.el!.nextSibling;
+                  insert(newVnode.el, container, anchor);
+                }
+              } else {
+                lastIndex = j;
+              }
+              break;
+            }
+          }
+          if (!find) {
+            // 证明newVnode是新增的节点
+            const prevNode = newChildren[i - 1];
+            let anchor;
+            if (prevNode) {
+              anchor = prevNode.el!.nextSibling;
+            } else {
+              anchor = (container as HTMLElement).firstChild;
+            }
+            patch(undefined, newVnode, container, anchor);
+          }
+        }
+
+        // 删除多余的旧节点
+        oldChildren.forEach((oldVnode) => {
+          const has = newChildren.find((vnode) => vnode.key === oldVnode.key);
+          if (!has) {
+            unmount(oldVnode);
+          }
         });
       } else {
         setElementText(container, "");
-        newVnode.children.forEach((child) => {
+        n2.children.forEach((child) => {
           patch(undefined, child, container);
         });
       }
@@ -280,20 +331,19 @@ const renderer = createRenderer({
 });
 
 const vnode: VNode = {
-  type: Fragment,
+  type: "div",
   children: [
-    { type: "li", children: "1" },
-    { type: "li", children: "2" },
-    { type: "li", children: "3" },
+    { type: "p", children: "1", key: "1" },
+    { type: "p", children: "2", key: "2" },
+    { type: "p", children: "3", key: "3" },
   ],
 };
 
 const vnode2: VNode = {
-  type: Fragment,
+  type: "div",
   children: [
-    { type: "li", children: "4" },
-    { type: "li", children: "5" },
-    { type: "li", children: "6" },
+    { type: "p", children: "new 3", key: "3" },
+    { type: "p", children: "new 1", key: "1" },
   ],
 };
 
