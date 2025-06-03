@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest",
     "dev": "vite"
   },
   "keywords": [],
@@ -12,6 +12,7 @@
   "license": "ISC",
   "packageManager": "pnpm@10.11.0",
   "devDependencies": {
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
   }
 }
