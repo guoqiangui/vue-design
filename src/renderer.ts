@@ -1,25 +1,27 @@
-import { effect, ref } from "./reactive";
+import {
+  effect,
+  reactive,
+  ref,
+  shallowReactive,
+  shallowReadonly,
+} from "./reactive";
 import { getSequence } from "./utils";
 
-export type VNode = {
+export interface VNode {
   type:
     | string
     | typeof Text
     | typeof Comment
     | typeof Fragment
-    | { render: () => VNode };
+    | ComponentOptions;
   props?: Record<string, any>;
-  children?: string | VNode[];
+  children?: string | VNode[] | Slots;
   el?: HTMLElement | Text | Comment | null;
   key?: any;
-};
-
-function mountComponent(vnode: VNode, container: HTMLElement) {
-  const subtree = vnode.type.render();
-  renderer(subtree, container);
+  component?: ComponentInstance;
 }
 
-type RendererOptions = {
+interface RendererOptions {
   createElement: (tag) => any;
   setElementText: (el, text) => void;
   insert: (el, parent, anchor?) => void;
@@ -28,7 +30,40 @@ type RendererOptions = {
   createComment: (text: string) => any;
   setComment: (el, text: string) => void;
   patchProps: (el, key: string, prevValue, nextValue) => void;
-};
+}
+
+interface ComponentOptions {
+  name?: string;
+  data?: () => Record<string, any>;
+  props: Record<string, any>;
+  render?: () => VNode;
+  beforeCreate?: Function;
+  created?: Function;
+  beforeMount?: Function;
+  mounted?: Function;
+  beforeUpdate?: Function;
+  updated?: Function;
+  setup?: (
+    props: ComponentOptions["props"],
+    setupContext: SetupContext
+  ) => (() => VNode) | object;
+}
+
+interface ComponentInstance {
+  state: object;
+  props: object;
+  isMounted: boolean;
+  subTree: VNode | undefined;
+  mounted: Function[];
+}
+
+interface SetupContext {
+  slots: Slots;
+  emit: (event: string, ...payload) => void;
+  attrs: object;
+}
+
+type Slots = { [name: string]: () => VNode };
 
 const Text = Symbol("Text");
 const Comment = Symbol("Comment");
@@ -106,6 +141,13 @@ export function createRenderer(options: RendererOptions) {
         );
       } else {
         patchChildren(oldVnode, newVnode, container);
+      }
+    } else if (typeof type === "object") {
+      // 组件
+      if (!oldVnode) {
+        mountComponent(newVnode, container, anchor);
+      } else {
+        patchComponent(oldVnode, newVnode, anchor);
       }
     }
   }
@@ -458,7 +500,177 @@ export function createRenderer(options: RendererOptions) {
     }
   }
 
+  function mountComponent(vnode: VNode, container, anchor?) {
+    const componentOptions = vnode.type as ComponentOptions;
+    const {
+      props: propsOption,
+      data,
+      beforeCreate,
+      created,
+      beforeMount,
+      mounted,
+      beforeUpdate,
+      updated,
+      setup,
+    } = componentOptions;
+    let { render } = componentOptions;
+
+    beforeCreate?.();
+
+    const [props, attrs] = resolveProps(propsOption, vnode.props);
+
+    const state = data ? reactive(data()) : null;
+
+    const instance: ComponentInstance = {
+      state,
+      props: shallowReactive(props),
+      isMounted: false,
+      subTree: undefined,
+      mounted: [],
+    };
+
+    function emit(event: string, ...payload) {
+      let eventName = `on${event[0].toUpperCase()}${event.slice(1)}`;
+      const handler = instance.props[eventName];
+      if (handler) {
+        handler(...payload);
+      } else {
+        console.error("事件不存在");
+      }
+    }
+
+    const slots = (vnode.children || {}) as Slots;
+
+    const setupContext: SetupContext = { attrs, emit, slots };
+    let setupResult;
+    let setupState;
+    if (setup) {
+      setCurrentInstance(instance);
+      setupResult = setup(shallowReadonly(instance.props), setupContext);
+      setCurrentInstance(null);
+
+      if (typeof setupResult === "object") {
+        setupState = setupResult;
+      } else if (typeof setupResult === "function") {
+        if (render) {
+          console.warn("setup函数返回渲染函数，render选项将被忽略");
+        }
+        render = setupResult;
+      }
+    }
+
+    vnode.component = instance;
+
+    const renderContext = new Proxy(instance, {
+      get(target, p, receiver) {
+        if (p === "$slots") return slots;
+
+        const { state, props } = target;
+
+        if (state && p in state) {
+          return state[p];
+        } else if (props && p in props) {
+          return props[p];
+        } else if (setupState && p in setupState) {
+          return setupState[p];
+        } else {
+          console.warn(`${p.toString()}不存在`);
+        }
+      },
+      set(target, p, newValue, receiver) {
+        const { state, props } = target;
+
+        if (state && p in state) {
+          state[p] = newValue;
+          return true;
+        } else if (props && p in props) {
+          console.warn(`不允许设置prop ${p.toString()}，Props是只读的`);
+          return false;
+        } else if (setupState && p in setupState) {
+          setupState[p] = newValue;
+          return true;
+        }
+
+        console.warn(`${p.toString()}不存在`);
+        return false;
+      },
+    });
+
+    created?.call(renderContext);
+
+    if (!render)
+      throw new Error("你干嘛，没有render选项，setup也没返回渲染函数");
+
+    effect(
+      () => {
+        const subTree = render.call(renderContext, renderContext);
+
+        if (!instance.isMounted) {
+          beforeMount?.call(renderContext);
+
+          patch(undefined, subTree, container, anchor);
+          instance.isMounted = true;
+
+          mounted?.call(renderContext);
+          instance.mounted.forEach((fn) => fn.call(renderContext));
+        } else {
+          beforeUpdate?.call(renderContext);
+
+          patch(instance.subTree, subTree, container, anchor);
+
+          updated?.call(renderContext);
+        }
+
+        instance.subTree = subTree;
+      },
+      {
+        scheduler: queueJob,
+      }
+    );
+  }
+
+  function patchComponent(n1: VNode, n2: VNode, anchor?) {
+    const instance = (n2.component = n1.component);
+
+    const { props } = instance as ComponentInstance;
+
+    if (hasPropsChanged(n1.props, n2.props)) {
+      const [nextProps] = resolveProps(
+        (n2.type as ComponentOptions).props,
+        n2.props
+      );
+
+      Object.keys(nextProps).forEach((key) => {
+        props[key] = nextProps[key];
+      });
+
+      Object.keys(props).forEach((key) => {
+        if (!(key in nextProps)) {
+          delete props[key];
+        }
+      });
+    }
+  }
+
   return { render };
+}
+
+const queue = new Set<Function>();
+let isFlushing = false;
+const p = Promise.resolve();
+function queueJob(job: Function) {
+  queue.add(job);
+  if (!isFlushing) {
+    isFlushing = true;
+    p.then(() => {
+      try {
+        queue.forEach((fn) => fn());
+      } finally {
+        isFlushing = false;
+        queue.clear();
+      }
+    });
+  }
 }
 
 function normalizeClass(value) {
@@ -485,6 +697,49 @@ function shouldSetAsProps(el: HTMLElement, key, value) {
     return false;
   }
   return key in el;
+}
+
+function resolveProps(propsOption, propsData) {
+  const props = {};
+  const attrs = {};
+
+  Object.keys(propsData).forEach((key) => {
+    // 自定义事件也添加到props
+    if (key in propsOption || key.startsWith("on")) {
+      props[key] = propsData[key];
+    } else {
+      attrs[key] = propsData[key];
+    }
+  });
+
+  return [props, attrs];
+}
+
+function hasPropsChanged(prevProps, nextProps) {
+  if (Object.keys(prevProps).length !== Object.keys(nextProps).length) {
+    return true;
+  }
+
+  for (const key in prevProps) {
+    if (prevProps[key] !== nextProps[key]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+let currentInstance: ComponentInstance | null = null;
+function setCurrentInstance(instance: typeof currentInstance) {
+  currentInstance = instance;
+}
+
+function onMounted(cb: Function) {
+  if (currentInstance) {
+    currentInstance.mounted.push(cb);
+  } else {
+    console.error("onMounted只能在setup函数中调用");
+  }
 }
 
 const renderer = createRenderer({
@@ -550,32 +805,99 @@ const renderer = createRenderer({
   },
 });
 
-const vnode: VNode = {
-  type: "div",
-  children: [
-    { type: "p", children: "1", key: "1" },
-    { type: "p", children: "2", key: "2" },
-    { type: "p", children: "3", key: "3" },
-    { type: "p", children: "4", key: "4" },
-    { type: "p", children: "6", key: "6" },
-    { type: "p", children: "5", key: "5" },
-  ],
+// const MyComponent: ComponentOptions = {
+//   name: "MyComponent",
+//   props: {
+//     title: String,
+//   },
+//   data() {
+//     return { foo: "hello world" };
+//   },
+//   render() {
+//     return {
+//       type: "div",
+//       children: `组件数据：${this.foo}；props: ${this.title}`,
+//     };
+//   },
+//   beforeCreate() {
+//     console.log("beforeCreate");
+//   },
+//   created() {
+//     console.log("created", this.foo);
+//   },
+//   beforeMount() {
+//     console.log("beforeMount");
+//   },
+//   mounted() {
+//     console.log("mounted");
+//   },
+//   beforeUpdate() {
+//     console.log("beforeUpdate");
+//   },
+//   updated() {
+//     console.log("updated");
+//   },
+// };
+
+const MyComponent: ComponentOptions = {
+  name: "MyComponent",
+  props: { title: String },
+  setup(props, { emit, slots }) {
+    onMounted(() => {
+      console.log("onMounted 1");
+    });
+
+    onMounted(() => {
+      console.log("onMounted 2");
+    });
+
+    // return { foo };
+    return () => {
+      return {
+        type: Fragment,
+        children: [
+          { type: "header", children: [slots.header()] },
+          { type: "main", children: [slots.body()] },
+          { type: "footer", children: [slots.footer()] },
+        ],
+      };
+    };
+  },
+  // render() {
+  //   return {
+  //     type: Fragment,
+  //     children: [
+  //       { type: "header", children: [this.$slots.header()] },
+  //       { type: "main", children: [this.$slots.body()] },
+  //       { type: "footer", children: [this.$slots.footer()] },
+  //     ],
+  //   };
+  // },
 };
 
-const vnode2: VNode = {
-  type: "div",
-  children: [
-    { type: "p", children: "new 1", key: "1" },
-    { type: "p", children: "new 3", key: "3" },
-    { type: "p", children: "new 4", key: "4" },
-    { type: "p", children: "new 2", key: "2" },
-    { type: "p", children: "7", key: "7" },
-    { type: "p", children: "new 5", key: "5" },
-  ],
+const vnode: VNode = {
+  type: MyComponent,
+  props: {},
+  children: {
+    header() {
+      return { type: "h1", children: "我是标题" };
+    },
+    body() {
+      return { type: "section", children: "我是内容" };
+    },
+    footer() {
+      return { type: "p", children: "我是注脚" };
+    },
+  },
 };
+
+// const vnode2: VNode = {
+//   type: MyComponent,
+//   props: { title: "a small title" },
+// };
 
 renderer.render(vnode, document.getElementById("app")!);
 
-setTimeout(() => {
-  renderer.render(vnode2, document.getElementById("app")!);
-}, 2000);
+// setTimeout(() => {
+//   renderer.render(vnode2, document.getElementById("app")!);
+// }, 2000);

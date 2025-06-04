@@ -366,7 +366,7 @@ function createReactive(
 }
 
 const reactiveMap = new Map();
-function reactive(obj: Record<PropertyKey, any>) {
+export function reactive(obj: Record<PropertyKey, any>) {
   const existionProxy = reactiveMap.get(obj);
   if (existionProxy) {
     return existionProxy;
@@ -376,7 +376,7 @@ function reactive(obj: Record<PropertyKey, any>) {
   return proxy;
 }
 
-function shallowReactive(obj: Record<PropertyKey, any>) {
+export function shallowReactive(obj: Record<PropertyKey, any>) {
   return createReactive(obj, true);
 }
 
@@ -384,7 +384,7 @@ function readonly(obj: Record<PropertyKey, any>) {
   return createReactive(obj, false, true);
 }
 
-function shallowReadonly(obj: Record<PropertyKey, any>) {
+export function shallowReadonly(obj: Record<PropertyKey, any>) {
   return createReactive(obj, true, true);
 }
 
@@ -534,7 +534,7 @@ function watch<T>(
   }
 }
 
-export function ref(value) {
+export function ref<T>(value: T): { value: T } {
   const wrapper = { value };
   Object.defineProperty(wrapper, "__v_isRef", { value: true });
   return reactive(wrapper);
