@@ -7,14 +7,17 @@ import {
 } from "./reactive";
 import { getSequence } from "./utils";
 
+type Props = Record<string, any>;
+
 export interface VNode {
   type:
     | string
     | typeof Text
     | typeof Comment
     | typeof Fragment
-    | ComponentOptions;
-  props?: Record<string, any>;
+    | ComponentOptions
+    | ((() => VNode) & { props: Props });
+  props?: Props;
   children?: string | VNode[] | Slots;
   el?: HTMLElement | Text | Comment | null;
   key?: any;
@@ -32,7 +35,7 @@ interface RendererOptions {
   patchProps: (el, key: string, prevValue, nextValue) => void;
 }
 
-interface ComponentOptions {
+export interface ComponentOptions {
   name?: string;
   data?: () => Record<string, any>;
   props: Record<string, any>;
@@ -55,6 +58,7 @@ interface ComponentInstance {
   isMounted: boolean;
   subTree: VNode | undefined;
   mounted: Function[];
+  unmounted: Function[];
 }
 
 interface SetupContext {
@@ -66,7 +70,7 @@ interface SetupContext {
 type Slots = { [name: string]: () => VNode };
 
 const Text = Symbol("Text");
-const Comment = Symbol("Comment");
+export const Comment = Symbol("Comment");
 const Fragment = Symbol("Fragment");
 
 export function createRenderer(options: RendererOptions) {
@@ -142,8 +146,8 @@ export function createRenderer(options: RendererOptions) {
       } else {
         patchChildren(oldVnode, newVnode, container);
       }
-    } else if (typeof type === "object") {
-      // 组件
+    } else if (typeof type === "object" || typeof type === "function") {
+      // 有状态组件 or 函数式组件
       if (!oldVnode) {
         mountComponent(newVnode, container, anchor);
       } else {
@@ -177,6 +181,10 @@ export function createRenderer(options: RendererOptions) {
   function unmount(vnode: VNode) {
     if (vnode.type === Fragment) {
       (vnode.children as VNode[]).forEach((child) => unmount(child));
+      return;
+    } else if (typeof vnode.type === "object") {
+      vnode.component?.subTree && unmount(vnode.component.subTree);
+      vnode.component?.unmounted.forEach((fn) => fn());
       return;
     }
 
@@ -501,7 +509,14 @@ export function createRenderer(options: RendererOptions) {
   }
 
   function mountComponent(vnode: VNode, container, anchor?) {
-    const componentOptions = vnode.type as ComponentOptions;
+    let componentOptions = vnode.type as ComponentOptions;
+    if (typeof vnode.type === "function") {
+      componentOptions = {
+        props: vnode.type.props,
+        render: vnode.type,
+      };
+    }
+
     const {
       props: propsOption,
       data,
@@ -527,6 +542,7 @@ export function createRenderer(options: RendererOptions) {
       isMounted: false,
       subTree: undefined,
       mounted: [],
+      unmounted: [],
     };
 
     function emit(event: string, ...payload) {
@@ -742,7 +758,15 @@ function onMounted(cb: Function) {
   }
 }
 
-const renderer = createRenderer({
+export function onUnmounted(cb: Function) {
+  if (currentInstance) {
+    currentInstance.unmounted.push(cb);
+  } else {
+    console.error("onUnmounted只能在setup函数中调用");
+  }
+}
+
+export const renderer = createRenderer({
   createElement(tag) {
     return document.createElement(tag);
   },
@@ -805,99 +829,16 @@ const renderer = createRenderer({
   },
 });
 
-// const MyComponent: ComponentOptions = {
-//   name: "MyComponent",
-//   props: {
-//     title: String,
-//   },
-//   data() {
-//     return { foo: "hello world" };
-//   },
-//   render() {
-//     return {
-//       type: "div",
-//       children: `组件数据：${this.foo}；props: ${this.title}`,
-//     };
-//   },
-//   beforeCreate() {
-//     console.log("beforeCreate");
-//   },
-//   created() {
-//     console.log("created", this.foo);
-//   },
-//   beforeMount() {
-//     console.log("beforeMount");
-//   },
-//   mounted() {
-//     console.log("mounted");
-//   },
-//   beforeUpdate() {
-//     console.log("beforeUpdate");
-//   },
-//   updated() {
-//     console.log("updated");
-//   },
-// };
+export function main() {
+  function MyFuncComp(props) {
+    return { type: "h1", children: `函数式组件，内容：${props.title}` };
+  }
+  MyFuncComp.props = { title: String };
 
-const MyComponent: ComponentOptions = {
-  name: "MyComponent",
-  props: { title: String },
-  setup(props, { emit, slots }) {
-    onMounted(() => {
-      console.log("onMounted 1");
-    });
+  const vnode: VNode = {
+    type: MyFuncComp,
+    props: { title: "哈哈哈" },
+  };
 
-    onMounted(() => {
-      console.log("onMounted 2");
-    });
-
-    // return { foo };
-    return () => {
-      return {
-        type: Fragment,
-        children: [
-          { type: "header", children: [slots.header()] },
-          { type: "main", children: [slots.body()] },
-          { type: "footer", children: [slots.footer()] },
-        ],
-      };
-    };
-  },
-  // render() {
-  //   return {
-  //     type: Fragment,
-  //     children: [
-  //       { type: "header", children: [this.$slots.header()] },
-  //       { type: "main", children: [this.$slots.body()] },
-  //       { type: "footer", children: [this.$slots.footer()] },
-  //     ],
-  //   };
-  // },
-};
-
-const vnode: VNode = {
-  type: MyComponent,
-  props: {},
-  children: {
-    header() {
-      return { type: "h1", children: "我是标题" };
-    },
-    body() {
-      return { type: "section", children: "我是内容" };
-    },
-    footer() {
-      return { type: "p", children: "我是注脚" };
-    },
-  },
-};
-
-// const vnode2: VNode = {
-//   type: MyComponent,
-//   props: { title: "a small title" },
-// };
-
-renderer.render(vnode, document.getElementById("app")!);
-
-// setTimeout(() => {
-//   renderer.render(vnode2, document.getElementById("app")!);
-// }, 2000);
+  renderer.render(vnode, document.getElementById("app")!);
+}
