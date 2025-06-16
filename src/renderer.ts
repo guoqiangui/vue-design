@@ -22,6 +22,16 @@ export interface VNode {
   el?: HTMLElement | Text | Comment | null;
   key?: any;
   component?: ComponentInstance;
+
+  shouldKeepAlive?: boolean;
+  keepAliveInstance?: ComponentInstance;
+  keptAlive?: boolean;
+
+  transition?: {
+    beforeEnter: (el) => void;
+    enter: (el) => void;
+    leave: (el, performRemove: () => void) => void;
+  };
 }
 
 interface RendererOptions {
@@ -50,6 +60,16 @@ export interface ComponentOptions {
     props: ComponentOptions["props"],
     setupContext: SetupContext
   ) => (() => VNode) | object;
+  __isKeepAlive?: boolean;
+
+  __isTeleport?: boolean;
+  process?: (
+    n1: VNode | null | undefined,
+    n2: VNode,
+    container,
+    anchor,
+    internals: RendererInternals
+  ) => void;
 }
 
 interface ComponentInstance {
@@ -59,6 +79,13 @@ interface ComponentInstance {
   subTree: VNode | undefined;
   mounted: Function[];
   unmounted: Function[];
+
+  _activate?: (newVnode: VNode, container, anchor?) => void;
+  _deActivate?: (vnode: VNode) => void;
+  keepAliveCtx?: {
+    move: (vnode: VNode, parent, anchor?) => void;
+    createElement: (tag: string) => any;
+  };
 }
 
 interface SetupContext {
@@ -68,6 +95,12 @@ interface SetupContext {
 }
 
 type Slots = { [name: string]: () => VNode };
+
+interface RendererInternals {
+  patch: (n1: VNode | null, n2: VNode, container, anchor?) => void;
+  patchChildren: (n1: VNode, n2: VNode, container) => void;
+  move: (vnode: VNode, container, anchor?) => void;
+}
 
 const Text = Symbol("Text");
 export const Comment = Symbol("Comment");
@@ -98,7 +131,7 @@ export function createRenderer(options: RendererOptions) {
   }
 
   function patch(
-    oldVnode: VNode | undefined,
+    oldVnode: VNode | null | undefined,
     newVnode: VNode,
     container,
     anchor?
@@ -146,10 +179,26 @@ export function createRenderer(options: RendererOptions) {
       } else {
         patchChildren(oldVnode, newVnode, container);
       }
+    } else if (typeof type === "object" && type.__isTeleport) {
+      type.process!(oldVnode, newVnode, container, anchor, {
+        patch,
+        patchChildren,
+        move(vnode: VNode, container, anchor) {
+          insert(
+            vnode.component ? vnode.component.subTree!.el : vnode.el,
+            container,
+            anchor
+          );
+        },
+      });
     } else if (typeof type === "object" || typeof type === "function") {
       // 有状态组件 or 函数式组件
       if (!oldVnode) {
-        mountComponent(newVnode, container, anchor);
+        if (newVnode.keptAlive) {
+          newVnode.keepAliveInstance?._activate?.(newVnode, container, anchor);
+        } else {
+          mountComponent(newVnode, container, anchor);
+        }
       } else {
         patchComponent(oldVnode, newVnode, anchor);
       }
@@ -174,7 +223,16 @@ export function createRenderer(options: RendererOptions) {
           patch(undefined, child, el);
         });
       }
+
+      if (vnode.transition) {
+        vnode.transition.beforeEnter(el);
+      }
+
       insert(el, container, anchor);
+
+      if (vnode.transition) {
+        vnode.transition.enter(el);
+      }
     }
   }
 
@@ -183,15 +241,26 @@ export function createRenderer(options: RendererOptions) {
       (vnode.children as VNode[]).forEach((child) => unmount(child));
       return;
     } else if (typeof vnode.type === "object") {
-      vnode.component?.subTree && unmount(vnode.component.subTree);
-      vnode.component?.unmounted.forEach((fn) => fn());
+      if (vnode.shouldKeepAlive) {
+        vnode.keepAliveInstance?._deActivate?.(vnode);
+      } else {
+        vnode.component?.subTree && unmount(vnode.component.subTree);
+        vnode.component?.unmounted.forEach((fn) => fn());
+      }
+
       return;
     }
 
     if (vnode.el) {
       const parent = vnode.el.parentNode;
       if (parent) {
-        parent.removeChild(vnode.el);
+        const performRemove = () => parent.removeChild(vnode.el as HTMLElement);
+
+        if (vnode.transition) {
+          vnode.transition.leave(vnode.el, performRemove);
+        } else {
+          performRemove();
+        }
       }
     }
   }
@@ -397,7 +466,7 @@ export function createRenderer(options: RendererOptions) {
     let j = 0;
     let oldVnode = oldChildren[j];
     let newVnode = newChildren[j];
-    while (oldVnode.key === newVnode.key) {
+    while (oldVnode && newVnode && oldVnode.key === newVnode.key) {
       patch(oldVnode, newVnode, container);
 
       j++;
@@ -410,13 +479,15 @@ export function createRenderer(options: RendererOptions) {
     let newEnd = newChildren.length - 1;
     oldVnode = oldChildren[oldEnd];
     newVnode = newChildren[newEnd];
-    while (oldVnode.key === newVnode.key) {
-      patch(oldVnode, newVnode, container);
+    if (j < oldChildren.length && j < newChildren.length) {
+      while (oldVnode.key === newVnode.key) {
+        patch(oldVnode, newVnode, container);
 
-      oldEnd--;
-      newEnd--;
-      oldVnode = oldChildren[oldEnd];
-      newVnode = newChildren[newEnd];
+        oldEnd--;
+        newEnd--;
+        oldVnode = oldChildren[oldEnd];
+        newVnode = newChildren[newEnd];
+      }
     }
 
     if (j > oldEnd && j <= newEnd) {
@@ -544,6 +615,15 @@ export function createRenderer(options: RendererOptions) {
       mounted: [],
       unmounted: [],
     };
+
+    if (componentOptions.__isKeepAlive) {
+      instance.keepAliveCtx = {
+        move(vnode, parent, anchor?) {
+          insert(vnode.component?.subTree?.el, parent, anchor);
+        },
+        createElement,
+      };
+    }
 
     function emit(event: string, ...payload) {
       let eventName = `on${event[0].toUpperCase()}${event.slice(1)}`;
@@ -748,6 +828,9 @@ function hasPropsChanged(prevProps, nextProps) {
 let currentInstance: ComponentInstance | null = null;
 function setCurrentInstance(instance: typeof currentInstance) {
   currentInstance = instance;
+}
+export function getCurrentInstance() {
+  return currentInstance;
 }
 
 function onMounted(cb: Function) {

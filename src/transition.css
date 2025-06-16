@@ -1,0 +1,26 @@
+.box {
+  width: 200px;
+  height: 200px;
+  background-color: aquamarine;
+}
+
+.enter-from,
+.leave-to {
+  transform: translateX(200px);
+}
+
+.enter-active {
+  transition: transform 1s ease-in;
+}
+
+.enter-to {
+  transform: translateX(0);
+}
+
+.leave-from {
+  transform: translateX(100px);
+}
+
+.leave-active {
+  transition: transform 0.5s ease-out;
+}
