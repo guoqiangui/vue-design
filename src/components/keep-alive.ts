@@ -1,10 +1,10 @@
-import { ref } from "./reactive";
+import { ref } from "../reactive";
 import {
   ComponentOptions,
   getCurrentInstance,
   renderer,
   VNode,
-} from "./renderer";
+} from "../renderer";
 
 const KeepAlive: ComponentOptions = {
   __isKeepAlive: true,

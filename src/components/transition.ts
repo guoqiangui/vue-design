@@ -1,5 +1,5 @@
-import { ref } from "./reactive";
-import { ComponentOptions, renderer, VNode } from "./renderer";
+import { ref } from "../reactive";
+import { ComponentOptions, renderer, VNode } from "../renderer";
 import "./transition.css";
 
 /**
@@ -54,7 +54,7 @@ const Transition: ComponentOptions = {
               () => {
                 el.classList.remove("enter-to", "enter-active");
               },
-              { once: true }
+              { once: true },
             );
           });
         },
@@ -74,7 +74,7 @@ const Transition: ComponentOptions = {
 
                 performRemove();
               },
-              { once: true }
+              { once: true },
             );
           });
         },
@@ -118,6 +118,6 @@ const MyComponent: ComponentOptions = {
 export function main() {
   renderer.render(
     { type: MyComponent, props: {} },
-    document.getElementById("app")!
+    document.getElementById("app")!,
   );
 }

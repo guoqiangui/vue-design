@@ -1,4 +1,4 @@
-import { ComponentOptions, renderer, VNode } from "./renderer";
+import { ComponentOptions, renderer, VNode } from "../renderer";
 
 const Teleport: ComponentOptions = {
   __isTeleport: true,

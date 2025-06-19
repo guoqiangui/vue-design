@@ -1,12 +1,12 @@
 import MyComponent from "./my-component";
-import { ref } from "./reactive";
+import { ref } from "../reactive";
 import {
   Comment,
   ComponentOptions,
   onUnmounted,
   renderer,
   VNode,
-} from "./renderer";
+} from "../renderer";
 
 type Loader = () => Promise<ComponentOptions>;
 
@@ -21,7 +21,7 @@ interface DefineAsyncComponentOptions {
 }
 
 function defineAsyncComponent(
-  options: Loader | DefineAsyncComponentOptions
+  options: Loader | DefineAsyncComponentOptions,
 ): ComponentOptions {
   const opt = typeof options === "function" ? { loader: options } : options;
   const { loader } = opt;

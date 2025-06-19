@@ -58,7 +58,7 @@ export interface ComponentOptions {
   updated?: Function;
   setup?: (
     props: ComponentOptions["props"],
-    setupContext: SetupContext
+    setupContext: SetupContext,
   ) => (() => VNode) | object;
   __isKeepAlive?: boolean;
 
@@ -68,7 +68,7 @@ export interface ComponentOptions {
     n2: VNode,
     container,
     anchor,
-    internals: RendererInternals
+    internals: RendererInternals,
   ) => void;
 }
 
@@ -134,7 +134,7 @@ export function createRenderer(options: RendererOptions) {
     oldVnode: VNode | null | undefined,
     newVnode: VNode,
     container,
-    anchor?
+    anchor?,
   ) {
     if (oldVnode && oldVnode.type !== newVnode.type) {
       unmount(oldVnode);
@@ -174,7 +174,7 @@ export function createRenderer(options: RendererOptions) {
     } else if (type === Fragment) {
       if (!oldVnode) {
         (newVnode.children as VNode[]).forEach((child) =>
-          patch(undefined, child, container)
+          patch(undefined, child, container),
         );
       } else {
         patchChildren(oldVnode, newVnode, container);
@@ -187,7 +187,7 @@ export function createRenderer(options: RendererOptions) {
           insert(
             vnode.component ? vnode.component.subTree!.el : vnode.el,
             container,
-            anchor
+            anchor,
           );
         },
       });
@@ -414,7 +414,7 @@ export function createRenderer(options: RendererOptions) {
       } else {
         // 以上都无法匹配时，尝试寻找newStartVnode有无可复用的节点
         const idxInOld = oldChildren.findIndex(
-          (vnode) => vnode.key === newStartVnode.key
+          (vnode) => vnode.key === newStartVnode.key,
         );
         if (idxInOld > 0) {
           patch(oldChildren[idxInOld], newStartVnode, container);
@@ -721,7 +721,7 @@ export function createRenderer(options: RendererOptions) {
       },
       {
         scheduler: queueJob,
-      }
+      },
     );
   }
 
@@ -733,7 +733,7 @@ export function createRenderer(options: RendererOptions) {
     if (hasPropsChanged(n1.props, n2.props)) {
       const [nextProps] = resolveProps(
         (n2.type as ComponentOptions).props,
-        n2.props
+        n2.props,
       );
 
       Object.keys(nextProps).forEach((key) => {

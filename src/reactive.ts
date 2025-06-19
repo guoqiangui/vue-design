@@ -28,7 +28,7 @@ function trigger(
   target: object,
   p: PropertyKey,
   type: (typeof triggerType)[keyof typeof triggerType] = triggerType.SET,
-  newValue?: any
+  newValue?: any,
 ) {
   const depsMap = bucket.get(target);
   if (!depsMap) return;
@@ -252,11 +252,11 @@ const mutableInstrumentations = {
 function createReactive(
   obj: Record<PropertyKey, any>,
   isShallow = false,
-  isReadonly = false
+  isReadonly = false,
 ) {
   if (
     ["[object Set]", "[object Map]"].includes(
-      Object.prototype.toString.call(obj)
+      Object.prototype.toString.call(obj),
     )
   ) {
     return new Proxy(obj, {
@@ -320,8 +320,8 @@ function createReactive(
           ? triggerType.ADD
           : triggerType.SET
         : Object.prototype.hasOwnProperty.call(target, p)
-        ? triggerType.SET
-        : triggerType.ADD;
+          ? triggerType.SET
+          : triggerType.ADD;
 
       const res = Reflect.set(target, p, newValue, receiver);
 
@@ -490,7 +490,7 @@ type WatchOptions = { immediate?: boolean; flush?: "pre" | "post" | "sync" };
 function watch<T>(
   source: T | (() => T),
   cb: (newVal: T, oldVal: T, onInvalidate: (fn: Function) => void) => void,
-  options: WatchOptions = {}
+  options: WatchOptions = {},
 ) {
   let getter: Function;
   if (typeof source == "function") {
