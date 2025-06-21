@@ -1,197 +1,4 @@
-const State = {
-  initial: 1,
-  tagOpen: 2,
-  tagName: 3,
-  text: 4,
-  tagEnd: 5,
-  tagEndName: 6,
-};
-
-/**
- * 判断给定字符是否为字母
- * @param char
- * @returns
- */
-function isAlpha(char: string) {
-  return (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
-}
-
-interface TagToken {
-  type: "tag";
-  name: string;
-}
-
-interface TextToken {
-  type: "text";
-  content: string;
-}
-
-interface TagEndToken {
-  type: "tagEnd";
-  name: string;
-}
-
-type Token = TagToken | TextToken | TagEndToken;
-
-/**
- * 接受vue模板，将模板切割为token返回
- * @param str
- * @returns
- */
-function tokenize(str: string) {
-  const tokens: Token[] = [];
-  const chars: string[] = [];
-  let currentState = State.initial;
-
-  while (str.length) {
-    const char = str[0];
-
-    switch (currentState) {
-      case State.initial:
-        if (char === "<") {
-          currentState = State.tagOpen;
-          str = str.slice(1);
-        } else if (isAlpha(char)) {
-          currentState = State.text;
-          chars.push(char);
-          str = str.slice(1);
-        }
-        break;
-
-      case State.tagOpen:
-        if (isAlpha(char)) {
-          currentState = State.tagName;
-          chars.push(char);
-          str = str.slice(1);
-        } else if (char === "/") {
-          currentState = State.tagEnd;
-          str = str.slice(1);
-        }
-        break;
-
-      case State.tagName:
-        if (isAlpha(char)) {
-          chars.push(char);
-          str = str.slice(1);
-        } else if (char === ">") {
-          currentState = State.initial;
-          tokens.push({
-            type: "tag",
-            name: chars.join(""),
-          });
-          chars.length = 0;
-          str = str.slice(1);
-        }
-        break;
-
-      case State.text:
-        if (isAlpha(char)) {
-          chars.push(char);
-          str = str.slice(1);
-        } else if (char === "<") {
-          currentState = State.tagOpen;
-          tokens.push({
-            type: "text",
-            content: chars.join(""),
-          });
-          chars.length = 0;
-          str = str.slice(1);
-        }
-        break;
-
-      case State.tagEnd:
-        if (isAlpha(char)) {
-          currentState = State.tagEndName;
-          chars.push(char);
-          str = str.slice(1);
-        }
-        break;
-
-      case State.tagEndName:
-        if (isAlpha(char)) {
-          chars.push(char);
-          str = str.slice(1);
-        } else if (char === ">") {
-          currentState = State.initial;
-          tokens.push({
-            type: "tagEnd",
-            name: chars.join(""),
-          });
-          chars.length = 0;
-          str = str.slice(1);
-        }
-        break;
-
-      default:
-        break;
-    }
-  }
-
-  return tokens;
-}
-
-interface RootASTNode {
-  type: "Root";
-  children: TemplateASTNode[];
-  jsNode?: FunctionDeclNode;
-}
-
-interface ElementASTNode {
-  type: "Element";
-  tag: string;
-  children: TemplateASTNode[];
-  jsNode?: CallExpressionNode;
-}
-
-interface TextASTNode {
-  type: "Text";
-  content: string;
-  jsNode?: StringLiteralNode;
-}
-
-type TemplateASTNode = RootASTNode | ElementASTNode | TextASTNode;
-
-/**
- * 接收vue模板，返回模板AST
- * @param str
- */
-function parse(str: string) {
-  const tokens = tokenize(str);
-  console.log(tokens);
-
-  const root: RootASTNode = { type: "Root", children: [] };
-
-  const elementStack: (RootASTNode | ElementASTNode)[] = [root];
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    const parent = elementStack[elementStack.length - 1];
-
-    switch (token.type) {
-      case "tag": {
-        const node: ElementASTNode = {
-          type: "Element",
-          tag: token.name,
-          children: [],
-        };
-        parent.children.push(node);
-        elementStack.push(node);
-        break;
-      }
-      case "text": {
-        const node: TextASTNode = { type: "Text", content: token.content };
-        parent.children.push(node);
-        break;
-      }
-      case "tagEnd": {
-        elementStack.pop();
-        break;
-      }
-    }
-  }
-
-  return root;
-}
+import { ElementASTNode, parse, RootASTNode, TemplateASTNode } from "./parser";
 
 function dump(node: TemplateASTNode, indent = 0) {
   const desc =
@@ -259,7 +66,7 @@ function traverseNode(node: TemplateASTNode, context: TransformContext) {
   }
 }
 
-interface StringLiteralNode {
+export interface StringLiteralNode {
   type: "StringLiteral";
   value: string;
 }
@@ -269,7 +76,7 @@ interface IdentifierNode {
   name: string;
 }
 
-interface CallExpressionNode {
+export interface CallExpressionNode {
   type: "CallExpression";
   callee: IdentifierNode;
   arguments: JsASTNode[];
@@ -280,7 +87,7 @@ interface ArrayExpressionNode {
   elements: JsASTNode[];
 }
 
-interface FunctionDeclNode {
+export interface FunctionDeclNode {
   type: "FunctionDecl";
   id: IdentifierNode;
   params: [];
@@ -518,7 +325,11 @@ function compile(template: string) {
 }
 
 export function main() {
-  const template = /* html */ `<div><p>Vue</p><p>Template</p></div>`;
+  //   const template = /* html */ `<div>
+  //   <p>Vue</p>
+  //   <p>Template</p>
+  // </div>`;
+  const template = `<div><!-- 哈哈哈 --></div>`;
   const code = compile(template);
 
   console.log(code);
