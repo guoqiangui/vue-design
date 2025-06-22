@@ -32,6 +32,9 @@ export interface VNode {
     enter: (el) => void;
     leave: (el, performRemove: () => void) => void;
   };
+
+  dynamicChildren?: VNode[];
+  patchFlags?: number;
 }
 
 interface RendererOptions {
@@ -104,7 +107,7 @@ interface RendererInternals {
 
 const Text = Symbol("Text");
 export const Comment = Symbol("Comment");
-const Fragment = Symbol("Fragment");
+export const Fragment = Symbol("Fragment");
 
 export function createRenderer(options: RendererOptions) {
   const {
@@ -270,19 +273,39 @@ export function createRenderer(options: RendererOptions) {
     const oldProps = oldVnode.props || {};
     const newProps = newVnode.props || {};
 
-    Object.keys(newProps).forEach((key) => {
-      if (newProps[key] !== oldProps[key]) {
-        patchProps(el, key, oldProps[key], newProps[key]);
+    if (newVnode.patchFlags) {
+      // 靶向更新
+      if (newVnode.patchFlags === 1) {
+        setElementText(newVnode.el, newVnode.children);
       }
-    });
+    } else {
+      // 全量更新
+      Object.keys(newProps).forEach((key) => {
+        if (newProps[key] !== oldProps[key]) {
+          patchProps(el, key, oldProps[key], newProps[key]);
+        }
+      });
 
-    Object.keys(oldProps).forEach((key) => {
-      if (!(key in newProps)) {
-        patchProps(el, key, oldProps[key], null);
+      Object.keys(oldProps).forEach((key) => {
+        if (!(key in newProps)) {
+          patchProps(el, key, oldProps[key], null);
+        }
+      });
+
+      if (newVnode.dynamicChildren) {
+        // 跳过静态节点，直接对比动态节点
+        patchBlockChildren(oldVnode, newVnode, el);
+      } else {
+        patchChildren(oldVnode, newVnode, el);
       }
-    });
+    }
+  }
 
-    patchChildren(oldVnode, newVnode, el);
+  function patchBlockChildren(n1: VNode, n2: VNode, container) {
+    n2.dynamicChildren?.forEach((c, i) => {
+      // patchElement(n1.dynamicChildren![i], c);
+      patch(n1.dynamicChildren![i], c, container);
+    });
   }
 
   function patchChildren(n1: VNode, n2: VNode, container) {

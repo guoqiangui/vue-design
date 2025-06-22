@@ -1,4 +1,6 @@
 import { ElementASTNode, parse, RootASTNode, TemplateASTNode } from "./parser";
+import { effect, ref } from "./reactive";
+import { Fragment, renderer, VNode } from "./renderer";
 
 function dump(node: TemplateASTNode, indent = 0) {
   const desc =
@@ -324,13 +326,124 @@ function compile(template: string) {
   return code;
 }
 
-export function main() {
-  //   const template = /* html */ `<div>
-  //   <p>Vue</p>
-  //   <p>Template</p>
-  // </div>`;
-  const template = `<div><!-- 哈哈哈 --></div>`;
-  const code = compile(template);
+const dynamicChildrenStack: VNode[][] = [];
+let currentDynamicChildren: VNode[] | null | undefined = null;
 
-  console.log(code);
+function openBlock() {
+  dynamicChildrenStack.push((currentDynamicChildren = []));
+}
+
+function closeBlock() {
+  dynamicChildrenStack.pop();
+  currentDynamicChildren = dynamicChildrenStack.at(-1);
+}
+
+function createBlock(
+  type: VNode["type"],
+  props: { [key: string]: unknown },
+  children,
+) {
+  const vnode = createVNode(type, props, children);
+
+  vnode.dynamicChildren = currentDynamicChildren!;
+
+  const parentDynamicChildren = dynamicChildrenStack.at(-2);
+  if (parentDynamicChildren) {
+    parentDynamicChildren.push(vnode);
+  }
+
+  closeBlock();
+
+  return vnode;
+}
+
+function createVNode(
+  type: VNode["type"],
+  props: { [key: string]: unknown },
+  children,
+  flags?,
+): VNode {
+  const key = props.key;
+  delete props.key;
+
+  const vnode = {
+    type,
+    props,
+    children,
+    key,
+    patchFlags: flags,
+  };
+
+  if (flags != null && currentDynamicChildren) {
+    currentDynamicChildren.push(vnode);
+  }
+
+  return vnode;
+}
+
+export function main() {
+  // const template = `<div><!-- 哈哈哈 --></div>`;
+  // const code = compile(template);
+
+  // console.log(code);
+
+  const foo = ref(false);
+  const a = ref("111");
+  const list = ref(["1", "2"]);
+
+  // 假如这是编译好的render函数，并已完成动态节点分析
+  function render() {
+    // 普通情况
+    // return (
+    //   openBlock(),
+    //   createBlock("div", { class: "root" }, [
+    //     createVNode("section", { class: "parent" }, [
+    //       createVNode("p", {}, a.value, 1),
+    //     ]),
+    //   ])
+    // );
+
+    // v-if情况
+    // return (
+    //   openBlock(),
+    //   createBlock("div", { class: "root" }, [
+    //     foo.value
+    //       ? (openBlock(),
+    //         createBlock("section", { class: "parent", key: 1 }, [
+    //           createVNode("p", {}, a.value, 1),
+    //         ]))
+    //       : (openBlock(),
+    //         createBlock("div", { class: "parent", key: 2 }, [
+    //           createVNode("p", {}, a.value, 1),
+    //         ])),
+    //   ])
+    // );
+
+    // v-for情况
+    return (
+      openBlock(),
+      createBlock("div", {}, [
+        (openBlock(),
+        createBlock(
+          Fragment,
+          {},
+          list.value.map((item) => createVNode("p", {}, item)),
+        )),
+        createVNode("i", {}, a.value),
+      ])
+    );
+  }
+
+  const Comp = {
+    props: {},
+    render,
+  };
+
+  renderer.render({ type: Comp, props: {} }, document.getElementById("app")!);
+
+  setTimeout(() => {
+    foo.value = !foo.value;
+    a.value = "222";
+    list.value = ["1"];
+  }, 2000);
 }
