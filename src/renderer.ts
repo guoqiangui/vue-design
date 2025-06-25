@@ -75,8 +75,8 @@ export interface ComponentOptions {
   ) => void;
 }
 
-interface ComponentInstance {
-  state: object;
+export interface ComponentInstance {
+  state: object | null;
   props: object;
   isMounted: boolean;
   subTree: VNode | undefined;
@@ -91,13 +91,13 @@ interface ComponentInstance {
   };
 }
 
-interface SetupContext {
+export interface SetupContext {
   slots: Slots;
   emit: (event: string, ...payload) => void;
   attrs: object;
 }
 
-type Slots = { [name: string]: () => VNode };
+export type Slots = { [name: string]: () => VNode };
 
 interface RendererInternals {
   patch: (n1: VNode | null, n2: VNode, container, anchor?) => void;
@@ -649,7 +649,7 @@ export function createRenderer(options: RendererOptions) {
     }
 
     function emit(event: string, ...payload) {
-      let eventName = `on${event[0].toUpperCase()}${event.slice(1)}`;
+      const eventName = `on${event[0].toUpperCase()}${event.slice(1)}`;
       const handler = instance.props[eventName];
       if (handler) {
         handler(...payload);
@@ -727,7 +727,12 @@ export function createRenderer(options: RendererOptions) {
         if (!instance.isMounted) {
           beforeMount?.call(renderContext);
 
-          patch(undefined, subTree, container, anchor);
+          if (vnode.el) {
+            // 说明是hydrate
+            hydrateNode(vnode.el, subTree, container);
+          } else {
+            patch(undefined, subTree, container, anchor);
+          }
           instance.isMounted = true;
 
           mounted?.call(renderContext);
@@ -771,7 +776,38 @@ export function createRenderer(options: RendererOptions) {
     }
   }
 
-  return { render };
+  function hydrateNode(node: Node, vnode: VNode) {
+    // 将虚拟DOM和真实DOM建立联系
+    vnode.el = node;
+
+    const type = typeof vnode.type;
+    if (type === "object") {
+      mountComponent(vnode);
+    } else if (type === "string") {
+      if (vnode.props) {
+        Object.keys(vnode.props).forEach((key) => {
+          if (/^on/.test(key)) {
+            patchProps(node, key, null, vnode.props![key]);
+          }
+        });
+      }
+
+      if (Array.isArray(vnode.children)) {
+        let nextNode = node.firstChild;
+        vnode.children.forEach((c) => {
+          nextNode = hydrateNode(nextNode, c);
+        });
+      }
+    }
+
+    return node.nextSibling;
+  }
+
+  function hydrate(vnode: VNode, container: HTMLElement) {
+    hydrateNode(container.firstChild, vnode);
+  }
+
+  return { render, hydrate };
 }
 
 const queue = new Set<Function>();
@@ -818,7 +854,7 @@ function shouldSetAsProps(el: HTMLElement, key, value) {
   return key in el;
 }
 
-function resolveProps(propsOption, propsData) {
+export function resolveProps(propsOption, propsData) {
   const props = {};
   const attrs = {};
 
@@ -849,7 +885,7 @@ function hasPropsChanged(prevProps, nextProps) {
 }
 
 let currentInstance: ComponentInstance | null = null;
-function setCurrentInstance(instance: typeof currentInstance) {
+export function setCurrentInstance(instance: typeof currentInstance) {
   currentInstance = instance;
 }
 export function getCurrentInstance() {

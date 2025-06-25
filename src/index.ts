@@ -1,3 +1,3 @@
-import { main } from "./compiler";
+import { main } from "./server-renderer";
 
 main();
